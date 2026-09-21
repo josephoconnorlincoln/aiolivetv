@@ -319,14 +319,3 @@ export function filterChannelsByReview(
       return channels;
   }
 }
-
-export function formatDurationMs(ms: number) {
-  if (ms < 1000) return `${Math.max(0, Math.round(ms))} ms`;
-  return `${(ms / 1000).toFixed(1)} s`;
-}
-
-export function formatFetchedAt(iso: string) {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString();
-}

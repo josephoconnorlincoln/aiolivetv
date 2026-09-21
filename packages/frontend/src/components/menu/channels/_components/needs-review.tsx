@@ -1,4 +1,3 @@
-import { SettingsCard } from '@/components/shared/settings-card';
 import { StaticTabs } from '@/components/ui/tabs';
 import type {
   ChannelInfo,
@@ -59,12 +58,9 @@ export function NeedsReviewCard({
   });
 
   return (
-    <SettingsCard
-      title="Needs review"
-      description="Channel issues from the latest scan. Tabs filter My Channels below."
-    >
+    <div className="space-y-3">
       <StaticTabs
-        className="mb-4 h-10 w-fit max-w-full rounded-full border"
+        className="h-10 w-fit max-w-full rounded-full border"
         triggerClass="px-3 py-1 text-xs"
         items={[
           tab('All', 'all', total),
@@ -79,7 +75,7 @@ export function NeedsReviewCard({
       />
 
       {showUnavailable ? (
-        <div className="mb-4 space-y-2">
+        <div className="space-y-2">
           <p className="text-xs font-semibold uppercase tracking-widest text-[--muted]">
             Unavailable streams ({unavailableStreams.length})
           </p>
@@ -101,14 +97,14 @@ export function NeedsReviewCard({
       ) : null}
 
       {total === 0 ? (
-        <p className="py-2 text-sm text-[--muted]">
+        <p className="text-xs text-[--muted]">
           No mapping conflicts in the current scan.
         </p>
       ) : CHANNEL_FILTERS.includes(filter) ? (
         <p className="text-xs text-[--muted]">
-          My Channels below is filtered to this list.
+          The list below is filtered to this issue.
         </p>
       ) : null}
-    </SettingsCard>
+    </div>
   );
 }
