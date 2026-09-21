@@ -14,6 +14,7 @@ import {
   mergeConfigs,
   getChannelMatchConfidence,
   isHighConfidenceChannelMatch,
+  CHANNEL_LINK_STREAM_CONFIDENCE,
   bindsOwnCatalogStreams,
   findPossibleDuplicateChannels,
   catalogSupportsSkip,
@@ -212,6 +213,7 @@ router.post(
           channelId: string;
           name: string;
           poster?: string | null;
+          confidence: number;
         }>;
       };
       type SourceDiagnostic = {
@@ -555,22 +557,37 @@ router.post(
             (mapping) => `${mapping.addonId}\0${mapping.channelId}`
           )
         );
+        const canonical = resolveCanonical(channel);
         return streamCandidates
-          .filter(
-            (candidate) =>
-              !used.has(`${candidate.addonId}\0${candidate.id}`) &&
-              !isRejected(channel.id, candidate)
-          )
-          .map((candidate) => ({
-            addonId: candidate.addonId,
-            addonName: candidate.addonName,
-            channelId: candidate.id,
-            name: candidate.name,
-            poster: candidate.poster,
-          }))
-          .sort((a, b) =>
-            a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
-          );
+          .flatMap((candidate) => {
+            if (
+              used.has(`${candidate.addonId}\0${candidate.id}`) ||
+              isRejected(channel.id, candidate)
+            ) {
+              return [];
+            }
+            const confidence = getChannelMatchConfidence(
+              { ...candidate, logo: candidate.poster ?? undefined },
+              { ...canonical, logo: canonical.poster ?? undefined }
+            );
+            if (confidence < CHANNEL_LINK_STREAM_CONFIDENCE) return [];
+            return [
+              {
+                addonId: candidate.addonId,
+                addonName: candidate.addonName,
+                channelId: candidate.id,
+                name: candidate.name,
+                poster: candidate.poster,
+                confidence,
+              },
+            ];
+          })
+          .sort((a, b) => {
+            if (b.confidence !== a.confidence) return b.confidence - a.confidence;
+            return a.name.localeCompare(b.name, undefined, {
+              sensitivity: 'base',
+            });
+          });
       };
 
       for (const configured of configuredMappings) {

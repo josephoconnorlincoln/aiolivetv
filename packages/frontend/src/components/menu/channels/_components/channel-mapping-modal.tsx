@@ -74,7 +74,11 @@ export function ChannelMappingModal({
   const streamSourceOptions =
     channel.availableStreamSources?.map((source) => ({
       value: streamSourceKey(source.addonId, source.channelId),
-      label: `${source.addonName} · ${source.name}`,
+      label: `${source.addonName} · ${source.name}${
+        typeof source.confidence === 'number'
+          ? ` · ${Math.round(source.confidence * 100)}%`
+          : ''
+      }`,
       textValue: `${source.addonName} ${source.name}`,
     })) ?? [];
 
@@ -137,7 +141,7 @@ export function ChannelMappingModal({
                   onLinkStreamTargetChange(value[value.length - 1] ?? '')
                 }
                 options={streamSourceOptions}
-                emptyMessage="No matching stream channels"
+                emptyMessage="No stream channels match this one at 50% or higher"
                 keepOpenOnSelect={false}
               />
             </div>
@@ -153,8 +157,9 @@ export function ChannelMappingModal({
           </div>
         ) : (
           <p className="text-xs text-[--muted]">
-            No unlinked stream channels available. Add a stream addon such as
-            FrostView, Fenix TV or M3U, or add a manual HLS link below.
+            No unlinked stream channels match this one at 50% or higher. Add a
+            stream addon such as FrostView, Fenix TV or M3U, or add a manual HLS
+            link below.
           </p>
         )}
 

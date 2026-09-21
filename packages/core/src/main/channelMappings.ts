@@ -267,6 +267,7 @@ export function findPossibleDuplicateChannels(
 }
 
 export const CHANNEL_AUTO_MERGE_CONFIDENCE = 0.9;
+export const CHANNEL_LINK_STREAM_CONFIDENCE = 0.5;
 
 export const isHighConfidenceChannelMatch = (confidence: number) =>
   confidence >= CHANNEL_AUTO_MERGE_CONFIDENCE;

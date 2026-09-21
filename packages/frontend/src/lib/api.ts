@@ -248,6 +248,7 @@ export interface ChannelStreamSource {
   channelId: string;
   name: string;
   poster?: string | null;
+  confidence?: number;
 }
 
 export interface DeclaredStreamInfo {

@@ -397,6 +397,7 @@ export function ChannelsMenu() {
               channelId: mapping.channelId,
               name: mapping.name,
               poster: mapping.poster,
+              confidence: mapping.confidence,
             },
             ...(item.availableStreamSources ?? []).filter(
               (source) =>
