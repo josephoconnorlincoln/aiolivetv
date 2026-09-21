@@ -314,13 +314,13 @@ export function ChannelMappingModal({
                       mapping.addonId !== channel.canonicalAddonId ? (
                         <Button
                           size="sm"
-                          aria-label={`Split mapping from ${mapping.addonName}`}
+                          aria-label={`Unlink ${mapping.addonName} from ${channel.name}`}
                           leftIcon={<BiUnlink />}
                           onClick={() =>
                             onSplitMapping(mapping.addonId, mapping.channelId)
                           }
                         >
-                          Split
+                          Unlink
                         </Button>
                       ) : null}
                     </>
