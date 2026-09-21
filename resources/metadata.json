@@ -1,5 +1,5 @@
 {
-  "version": "0.6.1-beta",
+  "version": "0.6.2-beta",
   "description": "A unified Live TV hub for Stremio. Aggregate channels from multiple addons, EPG providers and M3U playlists into a single guide.",
   "tag": "v0.2.0-beta",
   "channel": "stable",

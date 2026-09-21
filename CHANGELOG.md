@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.6.2-beta](https://github.com/mrcanelas/aiolivetv/compare/v0.6.1-beta...v0.6.2-beta) (2026-09-21)
+
+
+### Bug Fixes
+
+* **channels:** collapse Sources, review, and removed lists into tabs ([bded7be](https://github.com/mrcanelas/aiolivetv/commit/bded7be4040b6c27e8b9eeebdd3f83289db9da23))
+* **channels:** only offer stream links that match at 50% or higher ([0a21cdb](https://github.com/mrcanelas/aiolivetv/commit/0a21cdb8545a78528b47576f9af40aaad8fe0a8e))
+* **channels:** unlink streams without creating a new channel card ([4d07ac8](https://github.com/mrcanelas/aiolivetv/commit/4d07ac83d05c31b39994a4cdb14d5889705d4eb4))
+
 ## [0.6.1-beta](https://github.com/mrcanelas/aiolivetv/compare/v0.6.0-beta...v0.6.1-beta) (2026-09-19)
 
 
