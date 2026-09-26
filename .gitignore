@@ -6,5 +6,6 @@ out/
 next-env.d.ts
 .wrangler/
 .env
+beamup.json
 data/
 testing/
