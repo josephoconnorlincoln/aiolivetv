@@ -90,4 +90,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
   CMD ["/nodejs/bin/node", "/app/scripts/healthcheck.js"]
 EXPOSE ${PORT:-3000}
 
-CMD ["/app/packages/server/dist/server.js"]
+# Distroless sets ENTRYPOINT to node. Beamup replaces CMD with /start, which
+# becomes `node /start` and crashes. Keep the server in ENTRYPOINT so that
+# extra argument is ignored.
+ENTRYPOINT ["/nodejs/bin/node", "/app/packages/server/dist/server.js"]
+CMD []
