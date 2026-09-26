@@ -1,0 +1,42 @@
+name: Deploy Beamup
+
+# Production deploys run when a GitHub Release is published (release-please or
+# manual), same trigger as Deploy Vercel. The action pushes this commit to
+# a.baby-beamup.club over SSH.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git tag or SHA to deploy
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    name: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.ref }}
+          fetch-depth: 0
+
+      - name: Check Beamup secret
+        env:
+          BEAMUP_SSH_PRIVATE_KEY: ${{ secrets.BEAMUP_SSH_PRIVATE_KEY }}
+        run: |
+          if [[ -z "$BEAMUP_SSH_PRIVATE_KEY" ]]; then
+            echo "Missing GitHub secret: BEAMUP_SSH_PRIVATE_KEY"
+            echo "Use the private key whose public key is on the GitHub account ${{ github.repository_owner }}."
+            exit 1
+          fi
+
+      - name: Deploy to Beamup
+        uses: Stremio/beamup-deploy-action@v1.0.1
+        with:
+          ssh_private_key: ${{ secrets.BEAMUP_SSH_PRIVATE_KEY }}
+          beamup_host: a.baby-beamup.club
+          username_github: ${{ github.repository_owner }}
+          project_name: aiolivetv
