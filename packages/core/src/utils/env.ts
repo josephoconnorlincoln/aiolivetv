@@ -226,6 +226,7 @@ export const Env = cleanEnv(process.env, {
   BASE_URL: url({
     desc: 'Base URL of the addon, including protocol, hostname, and optionally port',
     example: 'https://aiolivetv.example.com',
+    default: `http://127.0.0.1:${defaultListenPort}`,
     devDefault: `http://localhost:${process.env.PORT || 3000}`,
   }),
   INTERNAL_URL: url({
@@ -248,6 +249,10 @@ export const Env = cleanEnv(process.env, {
   SECRET_KEY: secretKey({
     desc: 'Session/encryption secret used to derive keys for stored configurations. Must be a 64-character hex string. Generate with `openssl rand -hex 32`. Cannot be changed after first run. (Legacy alias `SESSION_SECRET` is still accepted for one minor release.)',
     example: 'Generate using: openssl rand -hex 32',
+    // Beamup starts the container with only PORT set. A missing key used to
+    // exit before /manifest.json existed, so the deploy linter rejected the app.
+    // This fallback changes on every boot; set SECRET_KEY to keep saved configs.
+    default: randomBytes(32).toString('hex'),
   }),
   DATABASE_URI: databaseUri({
     default: 'sqlite://./data/db.sqlite',

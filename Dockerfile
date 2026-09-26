@@ -70,6 +70,9 @@ COPY --from=builder /build/node_modules ./node_modules
 COPY --from=builder /build/packages/core/node_modules ./packages/core/node_modules
 COPY --from=builder /build/packages/server/node_modules ./packages/server/node_modules
 
+# SQLite lives here. Keep it writable for the distroless image user.
+RUN mkdir -p /runtime/data && chmod 777 /runtime/data
+
 FROM gcr.io/distroless/nodejs24-debian12 AS production
 
 LABEL org.opencontainers.image.title="AIOLiveTV"

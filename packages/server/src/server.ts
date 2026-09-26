@@ -151,9 +151,9 @@ async function start() {
         `Server running on port ${appConfig.bootstrap.port}: ${JSON.stringify(server.address())}`
       );
     };
-    server = isEphemeralRuntime()
-      ? app.listen(appConfig.bootstrap.port, '0.0.0.0', onListen)
-      : app.listen(appConfig.bootstrap.port, onListen);
+    // Dokku/Beamup reach the container by its IPv4 address. Binding only the
+    // IPv6 wildcard makes that preflight check miss the process.
+    server = app.listen(appConfig.bootstrap.port, '0.0.0.0', onListen);
   } catch (error) {
     if (error instanceof ConfigStartupError) throw error;
     logger.error('Failed to start server:', error);

@@ -8,6 +8,7 @@ import {
 } from '@aiolivetv/core';
 import { Manifest } from '@aiolivetv/core';
 import { createLogger } from '@aiolivetv/core';
+import { corsMiddleware } from '../../middlewares/cors.js';
 import { stremioManifestRateLimiter } from '../../middlewares/ratelimit.js';
 
 const logger = createLogger('server');
@@ -15,6 +16,7 @@ const router: Router = Router();
 
 export default router;
 
+router.use(corsMiddleware);
 router.use(stremioManifestRateLimiter);
 
 const manifest = async (config?: UserData): Promise<Manifest> => {
@@ -35,6 +37,17 @@ const manifest = async (config?: UserData): Promise<Manifest> => {
     resources = aiostreams.getResources();
     addonCatalogs = aiostreams.getAddonCatalogs();
     epgProvider = aiostreams.hasEpgProvider();
+  } else {
+    // Beamup and Stremio require a manifest with at least one resource.
+    // The unconfigured addon still asks the user to finish setup.
+    resources = ['catalog', 'meta', 'stream'];
+    catalogs = [
+      {
+        type: constants.TV_TYPE,
+        id: 'aiolivetv',
+        name: appConfig.branding.addonName,
+      },
+    ];
   }
   return {
     name: config?.addonName || appConfig.branding.addonName,

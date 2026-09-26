@@ -33,6 +33,16 @@ export const logStartupInfo = () => {
   );
   logger.info(`  Port:          ${appConfig.bootstrap.port}`);
   logger.info(`  Base URL:      ${appConfig.bootstrap.baseUrl || '(not set)'}`);
+  if (!process.env.BASE_URL) {
+    logger.warn(
+      '  BASE_URL is not set. Install links use a local fallback until you set the public URL.'
+    );
+  }
+  if (!process.env.SECRET_KEY) {
+    logger.warn(
+      '  SECRET_KEY is not set. Using an ephemeral key that will not decrypt configs after a restart.'
+    );
+  }
   logger.info('');
 
   const dbType = appConfig.bootstrap.databaseUri.split('://')[0].toUpperCase();
