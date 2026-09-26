@@ -14,6 +14,7 @@ import {
   VivoTvPreset,
   MovistarTvPreset,
   TvpPreset,
+  DirectvPreset,
   XmltvPreset,
   XtreamPreset,
 } from './liveTv.js';
@@ -25,6 +26,7 @@ const PRESETS = {
   'vivo-tv': VivoTvPreset,
   'movistar-tv': MovistarTvPreset,
   tvp: TvpPreset,
+  directv: DirectvPreset,
   'claro-tv': ClaroTvPreset,
   'mi-tv': MiTvPreset,
   custom: CustomPreset,

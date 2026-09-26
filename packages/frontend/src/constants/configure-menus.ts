@@ -33,6 +33,7 @@ export const LIVE_TV_MARKETPLACE_PRESET_IDS = [
   'vivo-tv',
   'movistar-tv',
   'tvp',
+  'directv',
   'claro-tv',
   'mi-tv',
   'custom',

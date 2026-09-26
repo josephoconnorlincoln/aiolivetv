@@ -59,6 +59,32 @@ export function compactChannelName(name: string): string {
   return normalizeChannelName(name).replace(/\s+/g, '');
 }
 
+const DISPLAY_QUALITY =
+  /(?:fhd|uhd|hd|sd|4k|1080p|720p|2160p)/i;
+
+/**
+ * Display name with quality markers removed. Keeps casing and identifiers
+ * such as "A&E" or "FOX (103A)". Matching still uses `normalizeChannelName`.
+ */
+export function sanitizeChannelDisplayName(name: string): string {
+  const original = decodeHtmlEntities(name).replace(/\s+/g, ' ').trim();
+  if (!original) return '';
+
+  let cleaned = original.replace(
+    new RegExp(String.raw`\(\s*${DISPLAY_QUALITY.source}\s*\)`, 'gi'),
+    ' '
+  );
+  cleaned = cleaned.replace(
+    new RegExp(String.raw`\b${DISPLAY_QUALITY.source}\b`, 'gi'),
+    ' '
+  );
+  cleaned = cleaned.replace(/\(\s*\)/g, ' ');
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim();
+  cleaned = cleaned.replace(/\s+([,.;:!?])/g, '$1');
+  cleaned = cleaned.replace(/^[-–—|:]+|[-–—|:]+$/g, '').trim();
+  return cleaned || original;
+}
+
 const CHANNEL_GROUP_NOISE = /\b(?:fhd|hd|canais)\b/gi;
 
 function titleCaseGroupWords(value: string): string {

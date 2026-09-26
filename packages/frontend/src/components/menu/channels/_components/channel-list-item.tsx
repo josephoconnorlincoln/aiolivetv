@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { BiEdit, BiTrash } from 'react-icons/bi';
 import { LuLink } from 'react-icons/lu';
 import { IconButton } from '../../../ui/button';
@@ -78,6 +79,7 @@ export function ChannelListItem({
 }: ChannelListItemProps) {
   const { accepted, pending, total } = getMappingStats(channel);
   const sourceLabel = getChannelSourceLabel(channel);
+  const [logoFailed, setLogoFailed] = useState(false);
 
   const confirmDelete = useConfirmationDialog({
     title: 'Remove Channel',
@@ -127,11 +129,12 @@ export function ChannelListItem({
         </button>
 
         <div className="relative hidden h-8 w-8 flex-shrink-0 sm:block">
-          {channel.poster ? (
+          {channel.poster && !logoFailed ? (
             <img
               src={channel.poster}
               alt=""
               className="absolute inset-0 h-full w-full rounded-md object-contain"
+              onError={() => setLogoFailed(true)}
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center rounded-md bg-gray-950">

@@ -422,6 +422,103 @@ function tvpTvOptions(resources: ('catalog' | 'meta')[]): Option[] {
   ];
 }
 
+function generateDirectvAddon(options: Record<string, any>): Addon {
+  const timeout = Math.max(
+    options.timeout || appConfig.presets.defaultTimeout,
+    15_000
+  );
+  const config = {
+    timeout,
+    timeShiftMinutes: options.timeShiftMinutes ?? 0,
+  };
+  return {
+    name: options.name || 'DIRECTV',
+    manifestUrl: `${appConfig.bootstrap.internalUrl}/builtins/live-tv/directv/${toUrlSafeBase64(JSON.stringify(config))}/manifest.json`,
+    enabled: true,
+    resources: (options.resources || [
+      constants.CATALOG_RESOURCE,
+      constants.META_RESOURCE,
+    ]).filter(
+      (resource: string) =>
+        resource === constants.CATALOG_RESOURCE ||
+        resource === constants.META_RESOURCE
+    ),
+    timeout: config.timeout,
+    resultPassthrough: true,
+    preset: { id: '', type: 'directv', options },
+    headers: { 'User-Agent': appConfig.http.defaultUserAgent },
+  };
+}
+
+function directvOptions(resources: ('catalog' | 'meta')[]): Option[] {
+  return [
+    {
+      id: 'resources',
+      name: 'Resources',
+      description: 'Choose catalog and/or metadata from this source.',
+      type: 'multi-select',
+      required: false,
+      showInSimpleMode: true,
+      default: resources,
+      options: resources.map((resource) => ({
+        label: constants.RESOURCE_LABELS[resource],
+        value: resource,
+      })),
+    },
+    {
+      id: 'name',
+      name: 'Name',
+      description: 'What to call this addon',
+      type: 'string',
+      required: true,
+      default: 'DIRECTV',
+    },
+    {
+      id: 'timeout',
+      name: 'Timeout (ms)',
+      description: 'Timeout for API requests',
+      type: 'number',
+      required: true,
+      default: appConfig.presets.defaultTimeout,
+      constraints: {
+        min: appConfig.userLimits.timeouts.minTimeout,
+        max: appConfig.userLimits.timeouts.maxTimeout,
+        forceInUi: false,
+      },
+    },
+    epgTimeShiftOption(),
+  ];
+}
+
+export class DirectvPreset extends Preset {
+  static override get METADATA() {
+    const resources = [constants.CATALOG_RESOURCE, constants.META_RESOURCE];
+    return {
+      ID: 'directv',
+      NAME: 'DIRECTV',
+      LOGO: '/assets/directv.png',
+      URL: [`${appConfig.bootstrap.internalUrl}/builtins/live-tv/directv`],
+      TIMEOUT: appConfig.presets.defaultTimeout,
+      USER_AGENT: appConfig.http.defaultUserAgent,
+      SUPPORTED_SERVICES: [],
+      DESCRIPTION:
+        'Live channels and EPG from DIRECTV (US).\n\nLogos and programme images are geo-blocked and only load when the viewer is in the United States.',
+      OPTIONS: directvOptions(resources),
+      SUPPORTED_STREAM_TYPES: [],
+      SUPPORTED_RESOURCES: resources,
+      BUILTIN: true,
+      CATEGORY: constants.PresetCategory.META_CATALOGS,
+    };
+  }
+
+  static override async generateAddons(
+    _userData: UserData,
+    options: Record<string, any>
+  ): Promise<Addon[]> {
+    return [generateDirectvAddon(options)];
+  }
+}
+
 export class TvpPreset extends Preset {
   static override get METADATA() {
     const resources = [constants.CATALOG_RESOURCE, constants.META_RESOURCE];

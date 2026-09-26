@@ -11,6 +11,7 @@ import {
   VivoTvAddon,
   MovistarTvAddon,
   TvpAddon,
+  DirectvAddon,
   ClaroTvAddon,
   MiTvAddon,
   XtreamAddon,
@@ -19,6 +20,7 @@ import {
   type VivoTvConfig,
   type MovistarTvConfig,
   type TvpTvConfig,
+  type DirectvConfig,
   type ClaroTvConfig,
   type MiTvConfig,
   type XtreamConfig,
@@ -49,6 +51,10 @@ function tvpConfig(encodedConfig: string): TvpTvConfig {
   return JSON.parse(fromUrlSafeBase64(encodedConfig));
 }
 
+function directvConfig(encodedConfig: string): DirectvConfig {
+  return JSON.parse(fromUrlSafeBase64(encodedConfig));
+}
+
 function claroConfig(encodedConfig: string): ClaroTvConfig {
   return JSON.parse(fromUrlSafeBase64(encodedConfig));
 }
@@ -76,6 +82,8 @@ router.get('/:source/:encodedConfig/manifest.json', async (req, res, next) => {
             ? new MovistarTvAddon(movistarConfig(req.params.encodedConfig))
             : req.params.source === 'tvp'
               ? new TvpAddon(tvpConfig(req.params.encodedConfig))
+            : req.params.source === 'directv'
+              ? new DirectvAddon(directvConfig(req.params.encodedConfig))
             : req.params.source === 'claro-tv'
               ? new ClaroTvAddon(claroConfig(req.params.encodedConfig))
               : req.params.source === 'mi-tv'
@@ -312,6 +320,40 @@ router.get(
     try {
       const meta = await new TvpAddon(
         tvpConfig(req.params.encodedConfig)
+      ).getMeta(req.params.id);
+      res.json({
+        meta,
+        cacheMaxAge: 900,
+        staleRevalidate: 3600,
+        staleError: 604800,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  '/directv/:encodedConfig/catalog/:type/:id{/:extras}.json',
+  async (req: Request<ResourceParams>, res: Response, next: NextFunction) => {
+    try {
+      const { skip, date } = parseCatalogExtras(req.params.extras);
+      const response = await new DirectvAddon(
+        directvConfig(req.params.encodedConfig)
+      ).getCatalogResponse(skip, date);
+      res.json(response);
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+router.get(
+  '/directv/:encodedConfig/meta/:type/:id.json',
+  async (req: Request<ResourceParams>, res: Response, next: NextFunction) => {
+    try {
+      const meta = await new DirectvAddon(
+        directvConfig(req.params.encodedConfig)
       ).getMeta(req.params.id);
       res.json({
         meta,

@@ -4,6 +4,7 @@ export * from './m3u-reader/index.js';
 export * from './vivotv/index.js';
 export * from './movistartv/index.js';
 export * from './tvp/index.js';
+export * from './directv/index.js';
 export * from './clarotv/index.js';
 export * from './mitv/index.js';
 export * from './xtream/index.js';
