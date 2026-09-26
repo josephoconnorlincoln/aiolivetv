@@ -137,6 +137,11 @@ stremioAuthRouter.use('/addon_catalog', addonCatalog);
 app.use('/stremio', stremioRouter); // For public routes
 app.use('/stremio/:uuid/:encryptedPassword', stremioAuthRouter); // For authenticated routes
 
+// Beamup compatibility.
+// Beamup validates Stremio addons by checking the root /manifest.json.
+// AIOLiveTV keeps the normal public route at /stremio/manifest.json too.
+app.use('/manifest.json', manifest);
+
 const builtinsRouter = express.Router();
 builtinsRouter.use(internalMiddleware);
 builtinsRouter.use('/live-tv', liveTv);
@@ -183,7 +188,7 @@ app.get('/favicon.ico', staticRateLimiter, (req, res, next) => {
 app.get(
   [
     '/favicon.png',
-    '/manifest.json',
+    '/site.webmanifest',
     '/web-app-manifest-192x192.png',
     '/web-app-manifest-512x512.png',
     '/apple-icon.png',
