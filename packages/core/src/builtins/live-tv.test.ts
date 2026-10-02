@@ -541,3 +541,33 @@ describe('channel mappings', () => {
     ).rejects.toThrow(/maximum size/);
   });
 });
+
+describe('channel matching with guide country suffixes and numbers', () => {
+  const score = (stream: string, channel: string) =>
+    getChannelMatchConfidence(
+      { id: 'stream', name: stream },
+      { id: 'channel', name: channel }
+    );
+
+  it('ignores the XMLTV country suffix', () => {
+    expect(isHighConfidenceChannelMatch(score('CHANNEL 4', 'Channel 4.uk'))).toBe(true);
+    expect(isHighConfidenceChannelMatch(score('CHANNEL 5 HD', '5.uk'))).toBe(true);
+    expect(isHighConfidenceChannelMatch(score('Sky Sports+', 'Sky Sports+.uk'))).toBe(true);
+  });
+
+  it('never matches channels with different numbers', () => {
+    expect(score('PREMIER SPORTS 1', 'Premier Sports 2.uk')).toBe(0);
+    expect(score('TNT SPORTS 1', 'TNT Sports 10.uk')).toBe(0);
+    expect(score('CHANNEL 44', 'Channel 4.uk')).toBe(0);
+    expect(score('PREMIER SPORTS 1', 'Premier Sports 1.uk')).toBeGreaterThan(
+      score('PREMIER SPORTS 1', 'Premier Sports 2.uk')
+    );
+  });
+
+  it('keeps +1 channels apart from the main channel', () => {
+    expect(score('CHANNEL 4+1', 'Channel 4.uk')).toBe(0);
+    expect(score('CHANNEL 4', 'Channel 4 +1.uk')).toBe(0);
+    expect(isHighConfidenceChannelMatch(score('CHANNEL 4+1', 'Channel 4 +1.uk'))).toBe(true);
+    expect(isHighConfidenceChannelMatch(score('ITV +1', 'ITV1.uk'))).toBe(false);
+  });
+});

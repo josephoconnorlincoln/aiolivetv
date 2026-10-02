@@ -363,6 +363,15 @@ export interface ChannelsResponse {
   duplicates: DuplicateChannelGroup[];
   removedChannels: RemovedChannelInfo[];
   scan?: ChannelScanInfo;
+  streamCatalog?: StreamCatalogEntry[];
+}
+
+export interface StreamCatalogEntry {
+  addonId: string;
+  addonName: string;
+  channelId: string;
+  name: string;
+  poster?: string | null;
 }
 
 /**

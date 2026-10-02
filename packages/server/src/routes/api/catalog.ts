@@ -37,6 +37,7 @@ const MAX_CHANNELS_PER_CATALOG = 10_000;
 const MAX_STREAM_ONLY_CANDIDATES = 2_000;
 const MAX_CATALOG_PAGES = 50;
 const MAX_AUTO_MATCH_PAIRS = 5_000_000;
+const PAGE_OVERLAP = 10;
 const ONE_OFF_CATALOG =
   /(?:^|[^a-z])(?:events?|replays?|highlights?)(?:$|[^a-z])/i;
 
@@ -436,6 +437,7 @@ router.post(
           let skip = 0;
           let page = 0;
           let addonCandidateCount = 0;
+          let overlapped = false;
           const seenCatalogItems = new Set<string>();
           while (true) {
             page++;
@@ -503,6 +505,13 @@ router.post(
                 categories: Array.isArray(item.genres) ? item.genres : undefined,
               });
             }
+            if (paginated && overlapped && added === 0 && items.length > 0) {
+              // The source snapped our overlapping offset back to a page
+              // start and repeated a page; step past the overlap instead.
+              skip += PAGE_OVERLAP;
+              overlapped = false;
+              continue;
+            }
             if (
               !paginated ||
               items.length === 0 ||
@@ -511,7 +520,15 @@ router.post(
               skip + items.length >= MAX_CHANNELS_PER_CATALOG
             )
               break;
-            skip += items.length;
+            // Live lists change while they are paged (event entries appear and
+            // disappear), which shifts page boundaries and silently drops
+            // channels. Re-read a few items of each page to cover the shift.
+            const step =
+              items.length > PAGE_OVERLAP * 2
+                ? items.length - PAGE_OVERLAP
+                : items.length;
+            overlapped = step < items.length;
+            skip += step;
           }
           if (stopped) break;
         }
@@ -816,7 +833,7 @@ router.post(
               ? sourceDiag.error
               : candidate
                 ? 'Source does not provide streams'
-                : 'Stream was not returned by the source',
+                : 'Not in the source list during this scan (it may still play)',
           });
         }
         const canonical =
@@ -1068,6 +1085,21 @@ router.post(
             unavailableStreams,
             duplicates: findPossibleDuplicateChannels(visibleChannels),
             removedChannels,
+            // Every stream the sources offered, so a stream can be linked to
+            // any channel by hand even when the names don't look alike.
+            streamCatalog: streamCandidates
+              .map((candidate) => ({
+                addonId: candidate.addonId,
+                addonName: candidate.addonName,
+                channelId: candidate.id,
+                name: candidate.name,
+                poster: candidate.poster,
+              }))
+              .sort((a, b) =>
+                a.name.localeCompare(b.name, undefined, {
+                  sensitivity: 'base',
+                })
+              ),
             scan: {
               durationMs: Date.now() - scanStartedAt,
               budgetMs: scanBudgetMs || null,
