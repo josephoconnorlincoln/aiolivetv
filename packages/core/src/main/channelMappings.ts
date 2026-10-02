@@ -142,8 +142,20 @@ export function sortLiveCatalogItems<
   );
 }
 
+const normalisedIdCache = new Map<string, string>();
+
 function normaliseId(value?: string) {
-  return decodeHtmlEntities(value ?? '')
+  if (!value) return '';
+  const cached = normalisedIdCache.get(value);
+  if (cached !== undefined) return cached;
+  if (normalisedIdCache.size >= 50_000) normalisedIdCache.clear();
+  const result = normaliseIdUncached(value);
+  normalisedIdCache.set(value, result);
+  return result;
+}
+
+function normaliseIdUncached(value: string) {
+  return decodeHtmlEntities(value)
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()

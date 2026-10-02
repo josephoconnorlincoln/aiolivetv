@@ -972,9 +972,9 @@ export function ChannelsMenu() {
               <div className="space-y-1 rounded-md border border-amber-500/40 px-3 py-2 text-xs">
                 {channelsResponse.scan?.truncated ? (
                   <p className="text-amber-400">
-                    The scan hit its time limit and returned partial results
-                    after {Math.round(channelsResponse.scan.durationMs / 1000)}
-                    s.
+                    {channelsResponse.scan.matchingTruncated
+                      ? 'Matching ran out of time, so some channels have no stream suggestions this time. Press refresh to try again.'
+                      : `The scan hit its time limit and returned partial results after ${Math.round(channelsResponse.scan.durationMs / 1000)}s.`}
                   </p>
                 ) : null}
                 {sourceProblems.map((source) => (
@@ -992,8 +992,8 @@ export function ChannelsMenu() {
                     key={`${source.instanceId}-skipped`}
                     className="text-[--muted]"
                   >
-                    {source.name}: skipped catalogs that need input the scan
-                    cannot give — {source.skippedCatalogs?.join(', ')}
+                    {source.name}: skipped{' '}
+                    {source.skippedCatalogs?.join(', ')}
                   </p>
                 ))}
               </div>

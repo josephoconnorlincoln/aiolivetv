@@ -26,6 +26,7 @@ import {
   normalizeChannelGroup,
   parseDeclaredStreamInfo,
   type DeclaredStreamInfo,
+  type ChannelMatchCandidate,
   isEphemeralRuntime,
 } from '@aiolivetv/core';
 
@@ -36,6 +37,8 @@ const MAX_CHANNELS_PER_CATALOG = 10_000;
 const MAX_STREAM_ONLY_CANDIDATES = 2_000;
 const MAX_CATALOG_PAGES = 50;
 const MAX_AUTO_MATCH_PAIRS = 5_000_000;
+const ONE_OFF_CATALOG =
+  /(?:^|[^a-z])(?:events?|replays?|highlights?)(?:$|[^a-z])/i;
 
 /**
  * Wall-clock budget for one Channels scan. On Vercel the whole request is
@@ -285,11 +288,33 @@ router.post(
       const todayUtc = new Date().toISOString().slice(0, 10);
       const scanStartedAt = Date.now();
       const scanBudgetMs = channelScanBudgetMs();
+      // Fetching sources gets three quarters of the budget; the rest is kept
+      // for matching channels against streams, which is CPU-bound.
       const scanDeadline =
+        scanBudgetMs > 0
+          ? scanStartedAt + Math.round(scanBudgetMs * 0.75)
+          : Number.POSITIVE_INFINITY;
+      const matchDeadline =
         scanBudgetMs > 0
           ? scanStartedAt + scanBudgetMs
           : Number.POSITIVE_INFINITY;
       let scanTruncated = false;
+      let matchingTruncated = false;
+      // Matching thousands of streams against hundreds of channels is pure
+      // CPU work. Hand control back to the event loop regularly so the rest
+      // of the dashboard (e.g. /status) keeps answering while a scan runs.
+      let lastYieldAt = Date.now();
+      const yieldIfBusy = async () => {
+        if (Date.now() - lastYieldAt < 25) return;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        lastYieldAt = Date.now();
+      };
+      const matchingTimeLeft = () => {
+        if (Date.now() < matchDeadline) return true;
+        scanTruncated = true;
+        matchingTruncated = true;
+        return false;
+      };
 
       type CatalogPage = Awaited<ReturnType<typeof aio.getCatalog>>;
       // Fetch one catalog page, but never past the scan deadline. On a
@@ -393,6 +418,16 @@ router.post(
             .map((extra) => extra.name);
           if (missing.length > 0) {
             skippedCatalogs.push(`${catalog.id} (needs ${missing.join(', ')})`);
+            continue;
+          }
+          // Stream-only sources are matched against persistent channels.
+          // Event, replay and highlight lists are one-off programmes that
+          // never match a channel and can hold thousands of entries.
+          if (
+            !contributesChannels &&
+            ONE_OFF_CATALOG.test(`${catalog.id} ${catalog.name ?? ''}`)
+          ) {
+            skippedCatalogs.push(`${catalog.id} (one-off events)`);
             continue;
           }
           const maxCandidates = contributesChannels
@@ -698,13 +733,23 @@ router.post(
             : null,
         });
       };
+      // Build each candidate's match input once instead of once per pair.
+      const matchInputs = new Map<Candidate, ChannelMatchCandidate>();
+      const matchInputFor = (candidate: Candidate): ChannelMatchCandidate => {
+        let input = matchInputs.get(candidate);
+        if (!input) {
+          input = { ...candidate, logo: candidate.poster ?? undefined };
+          matchInputs.set(candidate, input);
+        }
+        return input;
+      };
       const buildAvailableStreamSources = (channel: Channel) => {
         const used = new Set(
           channel.mappings.map(
             (mapping) => `${mapping.addonId}\0${mapping.channelId}`
           )
         );
-        const canonical = resolveCanonical(channel);
+        const canonicalInput = matchInputFor(resolveCanonical(channel));
         return streamCandidates
           .flatMap((candidate) => {
             if (
@@ -714,8 +759,8 @@ router.post(
               return [];
             }
             const confidence = getChannelMatchConfidence(
-              { ...candidate, logo: candidate.poster ?? undefined },
-              { ...canonical, logo: canonical.poster ?? undefined }
+              matchInputFor(candidate),
+              canonicalInput
             );
             if (confidence < CHANNEL_LINK_STREAM_CONFIDENCE) return [];
             return [
@@ -867,6 +912,8 @@ router.post(
         for (const candidate of streamCandidates.sort(
           (a, b) => Number(b.epgProvider) - Number(a.epgProvider)
         )) {
+          await yieldIfBusy();
+          if (!matchingTimeLeft()) break;
           if (hiddenChannelIds.has(candidate.id)) continue;
           if (bindsOwnCatalogStreams(candidate)) continue;
           if (assigned.has(candidateKey(candidate.addonId, candidate.id))) continue;
@@ -882,10 +929,9 @@ router.post(
                 )
               )
                 continue;
-              const canonical = resolveCanonical(channel);
               const confidence = getChannelMatchConfidence(
-                { ...candidate, logo: candidate.poster ?? undefined },
-                { ...canonical, logo: canonical.poster ?? undefined }
+                matchInputFor(candidate),
+                matchInputFor(resolveCanonical(channel))
               );
               if (
                 confidence > 0 &&
@@ -956,35 +1002,60 @@ router.post(
           a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
         );
 
-      const visibleChannels = channels
-        .filter((channel) => !hiddenChannelIds.has(channel.id))
-        .map((channel) => {
-          const canonical = resolveCanonical(channel);
-          const configured = configuredMappings.find(
-            (mapping) => mapping.id === channel.id
-          );
-          const sourceGroup = normalizeChannelGroup(
-            canonical.categories?.[0] ??
-              channel.mappings.find((mapping) => mapping.categories?.[0])
-                ?.categories?.[0]
-          );
-          return {
-            ...channel,
-            sourceName:
-              canonical.addonName ||
-              sources.get(channel.canonicalAddonId)?.name ||
-              undefined,
-            sourceGroup,
-            group: normalizeChannelGroup(configured?.group) ?? sourceGroup,
-            epgProvider:
-              canonical.epgProvider ||
-              channel.mappings.some((mapping) => mapping.epgProvider),
-            availableStreamSources: buildAvailableStreamSources(channel),
-          };
-        })
-        .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      const visibleChannelList: Array<
+        Channel & {
+          sourceName?: string;
+          sourceGroup?: string;
+          group?: string;
+        }
+      > = [];
+      for (const channel of channels) {
+        if (hiddenChannelIds.has(channel.id)) continue;
+        await yieldIfBusy();
+        visibleChannelList.push(
+          (() => {
+            const canonical = resolveCanonical(channel);
+            const configured = configuredMappings.find(
+              (mapping) => mapping.id === channel.id
+            );
+            const sourceGroup = normalizeChannelGroup(
+              canonical.categories?.[0] ??
+                channel.mappings.find((mapping) => mapping.categories?.[0])
+                  ?.categories?.[0]
+            );
+            return {
+              ...channel,
+              sourceName:
+                canonical.addonName ||
+                sources.get(channel.canonicalAddonId)?.name ||
+                undefined,
+              sourceGroup,
+              group: normalizeChannelGroup(configured?.group) ?? sourceGroup,
+              epgProvider:
+                canonical.epgProvider ||
+                channel.mappings.some((mapping) => mapping.epgProvider),
+              // Suggestions are optional: once the time budget is spent, return
+              // the channels without them rather than letting the request die.
+              availableStreamSources: matchingTimeLeft()
+                ? buildAvailableStreamSources(channel)
+                : [],
+            };
+          })()
         );
+      }
+      const visibleChannels = visibleChannelList.sort((a, b) =>
+        a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      );
+      logger.info(
+        {
+          durationMs: Date.now() - scanStartedAt,
+          channels: visibleChannels.length,
+          streamCandidates: streamCandidates.length,
+          autoMatch,
+          matchingTruncated,
+        },
+        'channel matching complete'
+      );
       res.status(200).json(
         createResponse({
           success: true,
@@ -1001,6 +1072,7 @@ router.post(
               durationMs: Date.now() - scanStartedAt,
               budgetMs: scanBudgetMs || null,
               truncated: scanTruncated,
+              matchingTruncated,
             },
           },
         })
