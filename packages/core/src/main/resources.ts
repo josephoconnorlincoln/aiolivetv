@@ -898,7 +898,7 @@ async function resolveLiveStreamFetchPlan(
   channelId: string
 ): Promise<{
   addons: Addon[];
-  channelIds: Map<string, string>;
+  channelIds: Map<string, string[]>;
   streamTypes: Map<string, string>;
   canonical: ChannelMatchCandidate;
 }> {
@@ -915,11 +915,14 @@ async function resolveLiveStreamFetchPlan(
     ) ?? [];
 
   const addons: Addon[] = [];
-  const channelIds = new Map<string, string>();
+  const channelIds = new Map<string, string[]>();
   const seen = new Set<string>();
 
+  // A channel can link several streams from the same source (e.g. BBC TWO,
+  // BBC TWO HD and BBC TWO ENG from one addon). Fetch every linked stream,
+  // not only the first, so the backups actually reach the player.
   const addAddon = (addon: Addon, mappedChannelId: string) => {
-    if (!addon.instanceId || seen.has(addon.instanceId)) return;
+    if (!addon.instanceId) return;
     if (
       channelMapping?.streams?.length &&
       !isChannelAddonEnabled(
@@ -931,9 +934,12 @@ async function resolveLiveStreamFetchPlan(
     ) {
       return;
     }
+    const ids = channelIds.get(addon.instanceId) ?? [];
+    if (!ids.includes(mappedChannelId)) ids.push(mappedChannelId);
+    channelIds.set(addon.instanceId, ids);
+    if (seen.has(addon.instanceId)) return;
     seen.add(addon.instanceId);
     addons.push(addon);
-    channelIds.set(addon.instanceId, mappedChannelId);
   };
 
   for (const source of explicitSources) {

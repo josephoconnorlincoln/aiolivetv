@@ -20,6 +20,8 @@ import {
   type AnalyticsErrorKind,
   type AnalyticsStatus,
 } from '../analytics/index.js';
+import { streamSourceChannelIds } from '../main/channelMappings.js';
+
 
 /**
  * Per-addon outcome tracked through {@link StreamFetcher.fetch} and surfaced
@@ -64,7 +66,7 @@ class StreamFetcher {
   public async fetch(
     addons: Addon[],
     context: StreamContext,
-    addonIds?: Map<string, string>,
+    addonIds?: Map<string, string | string[]>,
     addonStreamTypes?: Map<string, string>
   ): Promise<{
     streams: ParsedStream[];
@@ -138,10 +140,28 @@ class StreamFetcher {
       try {
         const streamType =
           addonStreamTypes?.get(addon.instanceId!) ?? type;
-        const streams = await new Wrapper(addon).getStreams(
-          streamType,
-          addonIds?.get(addon.instanceId!) ?? id
+        const mapped = addonIds?.get(addon.instanceId!);
+        const requestIds = (Array.isArray(mapped) ? mapped : [mapped ?? id])
+          .filter(Boolean) as string[];
+        const wrapper = new Wrapper(addon);
+        const results = await Promise.allSettled(
+          requestIds.map((requestId) =>
+            wrapper.getStreams(streamType, requestId)
+          )
         );
+        if (results.every((result) => result.status === 'rejected')) {
+          throw (results[0] as PromiseRejectedResult).reason;
+        }
+        const streams = results.flatMap((result, index) => {
+          if (result.status !== 'fulfilled') return [];
+          for (const stream of result.value) {
+            // Stream ids restart for every request, so streams fetched for
+            // different linked channels would collide and be merged away.
+            if (requestIds.length > 1) stream.id = `${stream.id}~${index}`;
+            streamSourceChannelIds.set(stream, requestIds[index]);
+          }
+          return result.value;
+        });
         const errorStreams = streams.filter(
           (s) => s.type === constants.ERROR_STREAM_TYPE
         );

@@ -417,6 +417,13 @@ export function buildManualParsedStreams(
     });
 }
 
+/**
+ * The source channel id each fetched stream was requested for. Live channels
+ * can link several streams from one addon; this lets the caller keep them in
+ * the order the user arranged them.
+ */
+export const streamSourceChannelIds = new WeakMap<object, string>();
+
 export function orderLiveStreamsByMapping(
   fetched: ParsedStream[],
   manual: ParsedStream[],
@@ -424,18 +431,34 @@ export function orderLiveStreamsByMapping(
 ): ParsedStream[] {
   if (!sources?.length) return [...manual, ...fetched];
   const fetchedByAddon = new Map<string, ParsedStream[]>();
+  const fetchedBySource = new Map<string, ParsedStream[]>();
   for (const stream of fetched) {
     const addonId = stream.addon.instanceId ?? stream.addon.preset.id;
     const list = fetchedByAddon.get(addonId) ?? [];
     list.push(stream);
     fetchedByAddon.set(addonId, list);
+    const sourceChannelId = streamSourceChannelIds.get(stream);
+    if (sourceChannelId) {
+      const key = `${addonId}\0${sourceChannelId}`;
+      const bySource = fetchedBySource.get(key) ?? [];
+      bySource.push(stream);
+      fetchedBySource.set(key, bySource);
+    }
   }
+  const ordered: ParsedStream[] = [];
+  const placed = new Set<ParsedStream>();
+  const place = (streams: ParsedStream[] | undefined) => {
+    for (const stream of streams ?? []) {
+      if (placed.has(stream)) continue;
+      placed.add(stream);
+      ordered.push(stream);
+    }
+  };
   const manualByUrl = new Map(
     manual
       .filter((stream) => stream.url)
       .map((stream) => [stream.url!, stream] as const)
   );
-  const ordered: ParsedStream[] = [];
   for (const source of sources) {
     if (isManualStreamSource(source) && source.url) {
       const stream = manualByUrl.get(source.url);
@@ -443,7 +466,10 @@ export function orderLiveStreamsByMapping(
       continue;
     }
     if (!source.addonId) continue;
-    ordered.push(...(fetchedByAddon.get(source.addonId) ?? []));
+    const exact = source.channelId
+      ? fetchedBySource.get(`${source.addonId}\0${source.channelId}`)
+      : undefined;
+    place(exact ?? fetchedByAddon.get(source.addonId));
   }
   return ordered.length ? ordered : [...manual, ...fetched];
 }
