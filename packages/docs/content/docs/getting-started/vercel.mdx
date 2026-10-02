@@ -128,6 +128,14 @@ checks out the release tag and runs `vercel deploy --prod`.
   sources need more than the plan default. Keep the built-in proxy disabled.
 </Callout>
 
+<Callout type="info">
+  The Channels page scan stops after `CHANNEL_SCAN_BUDGET_MS` (default
+  `240000` on Vercel) and returns the channels found so far, with each
+  unfinished or failing source listed on the page. If you raise the Function
+  max duration, raise this to about 60 seconds below the new limit. Set `0`
+  to remove the limit.
+</Callout>
+
 ## Cron jobs
 
 `vercel.json` registers three **daily** jobs (Hobby-compatible; more than once per day requires Pro):

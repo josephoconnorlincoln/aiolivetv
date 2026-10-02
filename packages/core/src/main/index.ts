@@ -23,7 +23,10 @@ import {
   fetchManifests,
   buildResources,
 } from './setup.js';
-import { getCatalog as _getCatalog } from './catalog.js';
+import {
+  getCatalog as _getCatalog,
+  type GetCatalogOptions,
+} from './catalog.js';
 import { configurationProvidesNativeEpg } from './epgProvider.js';
 import {
   getStreams as _getStreams,
@@ -87,8 +90,13 @@ export class AIOStreams {
     return _getStreams(this.ctx, id, type, preCaching);
   }
 
-  public async getCatalog(type: string, id: string, extras?: string) {
-    return _getCatalog(this.ctx, type, id, extras);
+  public async getCatalog(
+    type: string,
+    id: string,
+    extras?: string,
+    options?: GetCatalogOptions
+  ) {
+    return _getCatalog(this.ctx, type, id, extras, options);
   }
 
   public async getMeta(type: string, id: string) {

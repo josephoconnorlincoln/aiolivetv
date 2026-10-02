@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UserData } from '../db/index.js';
 
 vi.mock('../utils/index.js', () => ({
@@ -16,6 +16,7 @@ const {
   XmltvAddon,
   parseXmltv,
   parseXmltvData,
+  clearXmltvSourceCache,
 } = await Promise.all([
   import('./live-tv/index.js'),
   import('./m3u-reader/index.js'),
@@ -35,6 +36,11 @@ const {
   isChannelMappingSuggestion,
 } = await import('../main/channelMappings.js');
 const { makeRequest } = await import('../utils/index.js');
+
+beforeEach(() => {
+  // Parsed XMLTV guides are cached in-process; keep tests independent.
+  clearXmltvSourceCache();
+});
 
 describe('live TV sources', () => {
   it('parses catalog extras including optional genre', () => {
