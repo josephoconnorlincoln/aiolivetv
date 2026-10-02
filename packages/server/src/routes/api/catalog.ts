@@ -26,6 +26,7 @@ import {
   normalizeChannelGroup,
   parseDeclaredStreamInfo,
   type DeclaredStreamInfo,
+  isEphemeralRuntime,
 } from '@aiolivetv/core';
 
 const router: Router = Router();
@@ -35,6 +36,22 @@ const MAX_CHANNELS_PER_CATALOG = 10_000;
 const MAX_STREAM_ONLY_CANDIDATES = 2_000;
 const MAX_CATALOG_PAGES = 50;
 const MAX_AUTO_MATCH_PAIRS = 5_000_000;
+
+/**
+ * Wall-clock budget for one Channels scan. On Vercel the whole request is
+ * killed at the Function max duration (300s by default), so the scan stops
+ * early and returns what it has. Override with CHANNEL_SCAN_BUDGET_MS
+ * (0 disables the limit).
+ */
+const DEFAULT_EPHEMERAL_SCAN_BUDGET_MS = 240_000;
+function channelScanBudgetMs(): number {
+  const raw = process.env.CHANNEL_SCAN_BUDGET_MS;
+  if (raw !== undefined && raw.trim() !== '') {
+    const parsed = Number(raw);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return isEphemeralRuntime() ? DEFAULT_EPHEMERAL_SCAN_BUDGET_MS : 0;
+}
 
 type CatalogPageItem = {
   id: string;
@@ -68,7 +85,11 @@ function catalogErrorMessage(response: {
 router.use(catalogApiRateLimiter);
 router.use(attachSession);
 
-async function validateDraft(req: Request, userData: UserData) {
+async function validateDraft(
+  req: Request,
+  userData: UserData,
+  options?: { lenientAddons?: boolean }
+) {
   let configToValidate: UserData = userData;
   if (userData.parentConfig?.uuid) {
     let parent: UserData;
@@ -95,7 +116,9 @@ async function validateDraft(req: Request, userData: UserData) {
 
   try {
     return await validateConfig(configToValidate, {
-      skipErrorsFromAddonsOrProxies: false,
+      // The Channels preview reports unreachable addons per source instead of
+      // failing the whole scan because one manifest timed out.
+      skipErrorsFromAddonsOrProxies: options?.lenientAddons === true,
       decryptValues: true,
       increasedManifestTimeout: true,
       bypassManifestCache: true,
@@ -158,7 +181,9 @@ router.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const autoMatch = req.body.autoMatch === true;
-      const validatedUserData = await validateDraft(req, req.body.userData);
+      const validatedUserData = await validateDraft(req, req.body.userData, {
+        lenientAddons: true,
+      });
       const configuredMappings = validatedUserData.channelMappings ?? [];
       validatedUserData.channelMappings = undefined;
       const hiddenChannelIds = new Set(
@@ -230,6 +255,8 @@ router.post(
         channelCount: number;
         streamCount: number;
         programCount?: number;
+        truncated?: boolean;
+        skippedCatalogs?: string[];
       };
       type UnavailableStream = {
         channelId: string;
@@ -256,13 +283,62 @@ router.post(
 
       const sources = new Map<string, SourceDiagnostic>();
       const todayUtc = new Date().toISOString().slice(0, 10);
+      const scanStartedAt = Date.now();
+      const scanBudgetMs = channelScanBudgetMs();
+      const scanDeadline =
+        scanBudgetMs > 0
+          ? scanStartedAt + scanBudgetMs
+          : Number.POSITIVE_INFINITY;
+      let scanTruncated = false;
 
-      for (const addon of aio.getAddons()) {
+      type CatalogPage = Awaited<ReturnType<typeof aio.getCatalog>>;
+      // Fetch one catalog page, but never past the scan deadline. On a
+      // platform with a hard request limit (Vercel), returning partial results
+      // is far better than the whole request being killed with a 504.
+      const fetchPageWithinBudget = async (
+        type: string,
+        catalogId: string,
+        extras: string | undefined
+      ): Promise<CatalogPage | 'deadline'> => {
+        const remaining = scanDeadline - Date.now();
+        if (remaining <= 0) return 'deadline';
+        const request: Promise<CatalogPage> = aio
+          .getCatalog(type, catalogId, extras, { strictErrors: true })
+          .catch(
+            (error: unknown): CatalogPage => ({
+              success: false,
+              data: [],
+              errors: [
+                {
+                  title: 'Catalog fetch failed',
+                  description:
+                    error instanceof Error ? error.message : String(error),
+                },
+              ],
+            })
+          );
+        if (!Number.isFinite(remaining)) return request;
+        let timer: NodeJS.Timeout | undefined;
+        const deadline = new Promise<'deadline'>((resolve) => {
+          timer = setTimeout(() => resolve('deadline'), remaining);
+        });
+        try {
+          return await Promise.race([request, deadline]);
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      const scanAddon = async (
+        addon: ReturnType<typeof aio.getAddons>[number]
+      ): Promise<
+        { diagnostic: SourceDiagnostic; found: Candidate[] } | undefined
+      > => {
         const instanceId = addon.instanceId;
-        if (!instanceId) continue;
+        if (!instanceId) return undefined;
         const startedAt = Date.now();
         const manifest = aio.getManifest(instanceId);
-        if (!manifest) continue;
+        if (!manifest) return undefined;
         const contributesChannels = addonProvidesResource(addon, 'catalog');
         const supportsStream = manifest.resources.some((resource) =>
           typeof resource === 'string'
@@ -271,7 +347,7 @@ router.post(
         );
         const canStream =
           supportsStream && addonProvidesResource(addon, 'stream');
-        if (!contributesChannels && !canStream) continue;
+        if (!contributesChannels && !canStream) return undefined;
         const epgProvider = manifest.behaviorHints?.epgProvider === true;
         const includeGuide =
           epgProvider &&
@@ -292,7 +368,11 @@ router.post(
           channelCount: 0,
           streamCount: 0,
         };
-        sources.set(instanceId, diagnostic);
+        const found: Candidate[] = [];
+        const foundKeys = new Set<string>();
+        const errors: string[] = [];
+        const skippedCatalogs: string[] = [];
+        let stopped = false;
 
         for (const catalog of manifest.catalogs.filter((item) =>
           isLiveChannelType(item.type)
@@ -300,12 +380,24 @@ router.post(
           const addonId = instanceId;
           const catalogId = `${addonId}.${catalog.id}`;
           const paginated = catalogSupportsSkip(catalog.extra);
-          const maxCandidates = contributesChannels
-            ? MAX_CHANNELS_PER_CATALOG
-            : MAX_STREAM_ONLY_CANDIDATES;
           const catalogHasDate = catalog.extra?.some(
             (extra) => extra.name === 'date'
           );
+          // The scanner only ever supplies `skip` (and `date` for XMLTV
+          // guides). A catalog that requires anything else (a search term,
+          // a genre) cannot be listed and would only burn a timeout.
+          const supplied = new Set<string>(['skip']);
+          if (includeGuide && catalogHasDate) supplied.add('date');
+          const missing = (catalog.extra ?? [])
+            .filter((extra) => extra.isRequired && !supplied.has(extra.name))
+            .map((extra) => extra.name);
+          if (missing.length > 0) {
+            skippedCatalogs.push(`${catalog.id} (needs ${missing.join(', ')})`);
+            continue;
+          }
+          const maxCandidates = contributesChannels
+            ? MAX_CHANNELS_PER_CATALOG
+            : MAX_STREAM_ONLY_CANDIDATES;
           let skip = 0;
           let page = 0;
           let addonCandidateCount = 0;
@@ -321,14 +413,24 @@ router.post(
             ]
               .filter(Boolean)
               .join('&');
-            const response = await aio.getCatalog(
+            const response = await fetchPageWithinBudget(
               catalog.type,
               catalogId,
               extras || undefined
             );
+            if (response === 'deadline') {
+              scanTruncated = true;
+              diagnostic.truncated = true;
+              errors.push(
+                `${catalog.id}: stopped at the ${Math.round(scanBudgetMs / 1000)}s scan time limit (page ${page})`
+              );
+              stopped = true;
+              break;
+            }
             if (!response.success) {
-              diagnostic.ok = false;
-              diagnostic.error = catalogErrorMessage(response);
+              errors.push(
+                `${catalog.id}${page > 1 ? ` (page ${page})` : ''}: ${catalogErrorMessage(response)}`
+              );
               break;
             }
             const items = catalogPageItems(response);
@@ -343,9 +445,10 @@ router.post(
                   (diagnostic.programCount ?? 0) + item.videos.length;
               }
               const key = `${addonId}\0${item.id}`;
-              if (candidates.has(key)) continue;
+              if (foundKeys.has(key)) continue;
+              foundKeys.add(key);
               addonCandidateCount++;
-              candidates.set(key, {
+              found.push({
                 id: item.id,
                 name: decodeHtmlEntities(item.name ?? item.id),
                 poster: item.poster,
@@ -375,11 +478,55 @@ router.post(
               break;
             skip += items.length;
           }
-          if (!diagnostic.ok) break;
+          if (stopped) break;
+        }
+        if (errors.length > 0) {
+          diagnostic.ok = false;
+          diagnostic.error = errors.join(' · ');
+        }
+        if (skippedCatalogs.length > 0) {
+          diagnostic.skippedCatalogs = skippedCatalogs;
         }
         diagnostic.durationMs = Date.now() - startedAt;
         diagnostic.fetchedAt = new Date().toISOString();
+        if (!diagnostic.ok) {
+          logger.warn(
+            {
+              source: addon.name,
+              err: diagnostic.error,
+              durationMs: diagnostic.durationMs,
+            },
+            'channel scan source had errors'
+          );
+        }
+        return { diagnostic, found };
+      };
+
+      // Sources are scanned in parallel: one slow addon no longer delays the
+      // others. Pages within a single catalog remain sequential.
+      const scanned = await Promise.all(aio.getAddons().map(scanAddon));
+      for (const result of scanned) {
+        if (!result) continue;
+        sources.set(result.diagnostic.instanceId, result.diagnostic);
+        for (const candidate of result.found) {
+          const key = `${candidate.addonId}\0${candidate.id}`;
+          if (!candidates.has(key)) candidates.set(key, candidate);
+        }
       }
+      logger.info(
+        {
+          durationMs: Date.now() - scanStartedAt,
+          budgetMs: scanBudgetMs || null,
+          truncated: scanTruncated,
+          candidates: candidates.size,
+          sources: [...sources.values()].map((source) => ({
+            name: source.name,
+            ok: source.ok,
+            durationMs: source.durationMs,
+          })),
+        },
+        'channel scan complete'
+      );
 
       for (const entry of aio.getInitialisationErrors()) {
         const instanceId = entry.addon.instanceId;
@@ -850,6 +997,11 @@ router.post(
             unavailableStreams,
             duplicates: findPossibleDuplicateChannels(visibleChannels),
             removedChannels,
+            scan: {
+              durationMs: Date.now() - scanStartedAt,
+              budgetMs: scanBudgetMs || null,
+              truncated: scanTruncated,
+            },
           },
         })
       );

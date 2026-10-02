@@ -239,6 +239,7 @@ export function asChannelsResponse(
     unavailableStreams: data.unavailableStreams ?? [],
     duplicates: data.duplicates ?? [],
     removedChannels: data.removedChannels ?? [],
+    scan: data.scan,
   };
 }
 

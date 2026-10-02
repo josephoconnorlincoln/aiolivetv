@@ -1,7 +1,6 @@
 import { z } from 'zod';
 import type { Manifest, Meta, MetaPreview } from '../../db/index.js';
 import { TV_TYPE } from '../../utils/constants.js';
-import { Cache } from '../../utils/index.js';
 import {
   bareChannelPreview,
   buildEpgCatalogResponse,
@@ -25,16 +24,55 @@ import {
 } from '../live-tv/shared.js';
 import { parseXmltvData, buildProgramsByChannelId, type XmltvData } from './parser.js';
 
-const SOURCE_CACHE_TTL = 300;
-const sourceCache = Cache.getInstance<string, XmltvData>('xmltv-reader-sources');
+const SOURCE_CACHE_TTL_MS = 300_000;
+const SOURCE_CACHE_MAX_ENTRIES = 8;
+
+/**
+ * Parsed guides are kept in this process only. A whole country guide is far
+ * too large to round-trip through Redis on every catalog page (it can exceed
+ * the store's value limit or the Redis timeout, which turns every page into a
+ * full re-download and re-parse). The parsed data is treated as read-only.
+ */
+const parsedSources = new Map<string, { data: XmltvData; expiresAt: number }>();
+const inflightSources = new Map<string, Promise<XmltvData>>();
+
+/** Drop parsed guides held by this process (used by tests). */
+export function clearXmltvSourceCache() {
+  parsedSources.clear();
+  inflightSources.clear();
+}
 
 async function loadXmltv(config: LiveTvSourceConfig): Promise<XmltvData> {
   const cacheKey = config.sourceUrl;
-  const cached = await sourceCache.get(cacheKey);
-  if (cached) return hydrateXmltvData(cached);
-  const data = await parseXmltvData(await fetchSourceText(config));
-  await sourceCache.set(cacheKey, data, SOURCE_CACHE_TTL);
-  return data;
+  const cached = parsedSources.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) return cached.data;
+  if (cached) parsedSources.delete(cacheKey);
+
+  // Concurrent catalog/meta requests for the same guide share one download.
+  const pending = inflightSources.get(cacheKey);
+  if (pending) return pending;
+
+  const load = (async () => {
+    const data = hydrateXmltvData(
+      await parseXmltvData(await fetchSourceText(config))
+    );
+    parsedSources.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + SOURCE_CACHE_TTL_MS,
+    });
+    while (parsedSources.size > SOURCE_CACHE_MAX_ENTRIES) {
+      const oldest = parsedSources.keys().next().value;
+      if (oldest === undefined) break;
+      parsedSources.delete(oldest);
+    }
+    return data;
+  })();
+  inflightSources.set(cacheKey, load);
+  try {
+    return await load;
+  } finally {
+    inflightSources.delete(cacheKey);
+  }
 }
 
 function hydrateXmltvData(data: XmltvData): XmltvData {

@@ -93,17 +93,25 @@ export function ChannelsMenu() {
   const queryKey = ['channels', channelsConfigKey] as const;
   const query = useQuery({
     queryKey,
-    queryFn: () => fetchChannels(userDataRef.current, { autoMatch: false }),
+    queryFn: ({ signal }) =>
+      fetchChannels(userDataRef.current, { autoMatch: false, signal }),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
+  const [refreshError, setRefreshError] = React.useState<string | null>(null);
   const refreshStreamMappings = React.useCallback(async () => {
     setIsMatchingStreams(true);
+    setRefreshError(null);
     try {
       const data = await fetchChannels(userDataRef.current, {
         autoMatch: true,
       });
       queryClient.setQueryData(queryKey, data);
+    } catch (error) {
+      // Keep the channels already on screen; just say why the refresh failed.
+      setRefreshError(
+        error instanceof Error ? error.message : 'Channel refresh failed'
+      );
     } finally {
       setIsMatchingStreams(false);
     }
@@ -115,6 +123,12 @@ export function ChannelsMenu() {
     channelsResponse.removedChannels
   );
   const isInitialLoading = query.isPending && channels.length === 0;
+  const sourceProblems = channelsResponse.sources.filter(
+    (source) => !source.ok || source.truncated
+  );
+  const sourcesWithSkippedCatalogs = channelsResponse.sources.filter(
+    (source) => (source.skippedCatalogs?.length ?? 0) > 0
+  );
   const suggestionCount = countSuggestions(channels);
   const duplicateGroups = findDuplicateGroups(channels);
   const duplicateIds = React.useMemo(
@@ -945,9 +959,53 @@ export function ChannelsMenu() {
               </div>
             ) : null}
 
+            {refreshError ? (
+              <p className="rounded-md border border-red-500/40 px-3 py-2 text-sm text-red-400">
+                Refresh failed: {refreshError}
+              </p>
+            ) : null}
+
+            {!isInitialLoading &&
+            (channelsResponse.scan?.truncated ||
+              sourceProblems.length > 0 ||
+              sourcesWithSkippedCatalogs.length > 0) ? (
+              <div className="space-y-1 rounded-md border border-amber-500/40 px-3 py-2 text-xs">
+                {channelsResponse.scan?.truncated ? (
+                  <p className="text-amber-400">
+                    The scan hit its time limit and returned partial results
+                    after {Math.round(channelsResponse.scan.durationMs / 1000)}
+                    s.
+                  </p>
+                ) : null}
+                {sourceProblems.map((source) => (
+                  <p key={source.instanceId} className="text-amber-400">
+                    <span className="font-semibold">{source.name}</span> (
+                    {Math.round(source.durationMs / 1000)}s,{' '}
+                    {source.channelCount + source.streamCount > 0
+                      ? `${Math.max(source.channelCount, source.streamCount)} found`
+                      : 'nothing found'}
+                    ): {source.error ?? 'stopped early'}
+                  </p>
+                ))}
+                {sourcesWithSkippedCatalogs.map((source) => (
+                  <p
+                    key={`${source.instanceId}-skipped`}
+                    className="text-[--muted]"
+                  >
+                    {source.name}: skipped catalogs that need input the scan
+                    cannot give — {source.skippedCatalogs?.join(', ')}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
             {isInitialLoading ? (
-              <div className="flex justify-center py-16">
+              <div className="flex flex-col items-center gap-3 py-16">
                 <LoadingSpinner />
+                <p className="text-xs text-[--muted]">
+                  Scanning sources. This can take a few minutes with large
+                  guides; it will stop on its own if a source is too slow.
+                </p>
               </div>
             ) : query.error ? (
               <p className="py-8 text-center text-red-400">

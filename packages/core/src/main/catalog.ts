@@ -918,11 +918,21 @@ export async function getMergedCatalog(
   return { success: true, data: allItems, errors: [] };
 }
 
+export interface GetCatalogOptions {
+  /**
+   * Report upstream failures even on paginated (`skip`) requests. By default a
+   * failed `skip` page is treated as the end of the list, which is right for
+   * Stremio but hides real errors from the Channels scanner.
+   */
+  strictErrors?: boolean;
+}
+
 export async function getCatalog(
   ctx: AIOStreamsContext,
   type: string,
   id: string,
-  extras?: string
+  extras?: string,
+  options?: GetCatalogOptions
 ): Promise<AIOStreamsCatalogResponse> {
   logger.debug({ type, id, extras }, 'handling catalog request');
 
@@ -981,7 +991,7 @@ export async function getCatalog(
   );
 
   if (!result.success) {
-    if (extras && extras.includes('skip')) {
+    if (!options?.strictErrors && extras && extras.includes('skip')) {
       return { success: true, data: [], errors: [] };
     }
     return {
