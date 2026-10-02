@@ -4,8 +4,29 @@ import { decodeHtmlEntities } from './text.js';
  * Normalises live channel names for matching by stripping provider prefixes,
  * quality markers and audio/language hints while preserving regional identifiers.
  */
+/**
+ * Channel matching compares every channel against every stream, so the same
+ * names are normalised many thousands of times. Both functions are pure, so
+ * results are memoised (bounded, cleared when full).
+ */
+const NAME_CACHE_LIMIT = 50_000;
+const normalizedNameCache = new Map<string, string>();
+const compactNameCache = new Map<string, string>();
+
+function remember(cache: Map<string, string>, key: string, value: string) {
+  if (cache.size >= NAME_CACHE_LIMIT) cache.clear();
+  cache.set(key, value);
+  return value;
+}
+
 export function normalizeChannelName(name: string): string {
   if (!name) return '';
+  const cached = normalizedNameCache.get(name);
+  if (cached !== undefined) return cached;
+  return remember(normalizedNameCache, name, normalizeChannelNameUncached(name));
+}
+
+function normalizeChannelNameUncached(name: string): string {
 
   let normalized = decodeHtmlEntities(name).trim().toLowerCase();
   normalized = normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -56,7 +77,14 @@ export function normalizeChannelName(name: string): string {
 }
 
 export function compactChannelName(name: string): string {
-  return normalizeChannelName(name).replace(/\s+/g, '');
+  if (!name) return '';
+  const cached = compactNameCache.get(name);
+  if (cached !== undefined) return cached;
+  return remember(
+    compactNameCache,
+    name,
+    normalizeChannelName(name).replace(/\s+/g, '')
+  );
 }
 
 const DISPLAY_QUALITY =

@@ -323,6 +323,7 @@ export interface ChannelScanInfo {
   durationMs: number;
   budgetMs: number | null;
   truncated: boolean;
+  matchingTruncated?: boolean;
 }
 
 export interface UnmatchedStreamInfo {
