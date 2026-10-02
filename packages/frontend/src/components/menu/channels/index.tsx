@@ -440,10 +440,15 @@ export function ChannelsMenu() {
     setChannels((current) =>
       current.map((channel) => {
         if (channel.id !== channelId) return channel;
-        const source = channel.availableStreamSources?.find(
-          (item) =>
-            item.addonId === addonId && item.channelId === streamChannelId
-        );
+        const source =
+          channel.availableStreamSources?.find(
+            (item) =>
+              item.addonId === addonId && item.channelId === streamChannelId
+          ) ??
+          channelsResponse.streamCatalog?.find(
+            (item) =>
+              item.addonId === addonId && item.channelId === streamChannelId
+          );
         if (!source) return channel;
         return {
           ...channel,
@@ -1046,6 +1051,7 @@ export function ChannelsMenu() {
 
       <ChannelMappingModal
         channel={mappingChannel}
+        allStreamSources={channelsResponse.streamCatalog}
         open={mappingModal.isOpen}
         onOpenChange={(open) => {
           if (open) mappingModal.open();

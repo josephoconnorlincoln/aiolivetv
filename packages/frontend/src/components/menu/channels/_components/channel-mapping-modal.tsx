@@ -13,7 +13,7 @@ import { Modal } from '../../../ui/modal';
 import { Button } from '../../../ui/button';
 import { Combobox } from '../../../ui/combobox';
 import { Switch } from '../../../ui/switch';
-import type { ChannelInfo } from '@/lib/api';
+import type { ChannelInfo, StreamCatalogEntry } from '@/lib/api';
 import {
   isChannelSuggestion,
   isManualStreamMapping,
@@ -38,6 +38,7 @@ type ChannelMappingModalProps = {
   onAddManualStream: () => void;
   onEditManualStream: (mapping: ChannelInfo['mappings'][number]) => void;
   onSetCanonical: (addonId: string) => void;
+  allStreamSources?: StreamCatalogEntry[];
   preventDismiss?: boolean;
   onToggleStream: (
     addonId: string,
@@ -64,7 +65,9 @@ export function ChannelMappingModal({
   onSetCanonical,
   onToggleStream,
   preventDismiss = false,
+  allStreamSources = [],
 }: ChannelMappingModalProps) {
+  const [streamSearch, setStreamSearch] = React.useState('');
   if (!channel) return null;
 
   const pendingCount = channel.mappings.filter((mapping) =>
@@ -81,6 +84,35 @@ export function ChannelMappingModal({
       }`,
       textValue: `${source.addonName} ${source.name}`,
     })) ?? [];
+
+  // Typing searches every stream the sources offered, not only close name
+  // matches, so any stream can be linked to this channel by hand.
+  const searchText = streamSearch.trim().toLowerCase();
+  if (searchText.length >= 2) {
+    const taken = new Set([
+      ...streamSourceOptions.map((option) => option.value),
+      ...channel.mappings.map((mapping) =>
+        streamSourceKey(mapping.addonId, mapping.channelId)
+      ),
+    ]);
+    const extra = allStreamSources
+      .filter(
+        (source) =>
+          !taken.has(streamSourceKey(source.addonId, source.channelId)) &&
+          `${source.addonName} ${source.name}`
+            .toLowerCase()
+            .includes(searchText)
+      )
+      .slice(0, 50)
+      .map((source) => ({
+        value: streamSourceKey(source.addonId, source.channelId),
+        label: `${source.addonName} · ${source.name}`,
+        textValue: `${source.addonName} ${source.name}`,
+      }));
+    streamSourceOptions.push(...extra);
+  }
+  const canLinkStreams =
+    streamSourceOptions.length > 0 || allStreamSources.length > 0;
 
   const mappingStatus = (mapping: ChannelInfo['mappings'][number]) => {
     const suggestion = isChannelSuggestion(mapping.confidence);
@@ -130,7 +162,7 @@ export function ChannelMappingModal({
           </div>
         ) : null}
 
-        {streamSourceOptions.length > 0 ? (
+        {canLinkStreams ? (
           <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:items-end">
             <div className="min-w-0 flex-1">
               <Combobox
@@ -141,7 +173,8 @@ export function ChannelMappingModal({
                   onLinkStreamTargetChange(value[value.length - 1] ?? '')
                 }
                 options={streamSourceOptions}
-                emptyMessage="No stream channels match this one at 50% or higher"
+                onTextChange={setStreamSearch}
+                emptyMessage="Type at least 2 letters to search every stream"
                 keepOpenOnSelect={false}
               />
             </div>

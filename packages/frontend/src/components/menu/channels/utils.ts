@@ -240,6 +240,7 @@ export function asChannelsResponse(
     duplicates: data.duplicates ?? [],
     removedChannels: data.removedChannels ?? [],
     scan: data.scan,
+    streamCatalog: data.streamCatalog ?? [],
   };
 }
 

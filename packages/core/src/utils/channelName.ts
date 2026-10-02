@@ -29,6 +29,13 @@ export function normalizeChannelName(name: string): string {
 function normalizeChannelNameUncached(name: string): string {
 
   let normalized = decodeHtmlEntities(name).trim().toLowerCase();
+  // XMLTV guides (e.g. open-epg) suffix channel names with a country code:
+  // "Channel 4.uk", "5.uk". Without stripping it, short names such as
+  // "Channel 4" can never match a stream called "CHANNEL 4".
+  normalized = normalized.replace(/\.[a-z]{2}$/, '');
+  // "+1" means the hour-later version of a channel. Keep it as a word so
+  // "ITV +1" never looks like "ITV1" once punctuation is dropped.
+  normalized = normalized.replace(/\s*\+\s*1\b/g, ' timeshift ');
   normalized = normalized.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
   normalized = normalized.replace(/²/g, '2');
 

@@ -186,13 +186,40 @@ function collectNameEntries(candidate: ChannelMatchCandidate) {
   return entries;
 }
 
+function channelNumbers(normalized: string): string {
+  return (normalized.match(/\d+/g) ?? [])
+    .map((value) => String(Number(value)))
+    .sort()
+    .join(',');
+}
+
 function scoreNamePair(
+  left: { value: string; alias: boolean },
+  right: { value: string; alias: boolean }
+) {
+  const score = scoreNamePairUncapped(left, right);
+  if (!score) return 0;
+  const leftNumbers = channelNumbers(normalizeChannelName(left.value));
+  const rightNumbers = channelNumbers(normalizeChannelName(right.value));
+  return Boolean(leftNumbers) !== Boolean(rightNumbers)
+    ? Math.min(score, 0.8)
+    : score;
+}
+
+function scoreNamePairUncapped(
   left: { value: string; alias: boolean },
   right: { value: string; alias: boolean }
 ) {
   const leftNorm = normalizeChannelName(left.value);
   const rightNorm = normalizeChannelName(right.value);
   if (!leftNorm || !rightNorm) return 0;
+
+  // Channel numbers identify different channels: "Premier Sports 1" is not
+  // "Premier Sports 2" and "TNT Sports 1" is not "TNT Sports 10", however
+  // similar the rest of the name looks.
+  const leftNumbers = channelNumbers(leftNorm);
+  const rightNumbers = channelNumbers(rightNorm);
+  if (leftNumbers && rightNumbers && leftNumbers !== rightNumbers) return 0;
 
   const aliasMatch = left.alias || right.alias;
   const leftCompact = compactChannelName(left.value);
@@ -252,12 +279,15 @@ export function getChannelMatchConfidence(
 
   let score = matchNormalizedNames(left, right);
   if (!score) return 0;
+  // Extra metadata may strengthen a suggestion, but must not lift a name
+  // that isn't a strong match over the automatic-link threshold.
+  const nameIsStrong = score >= 0.9;
 
   if (equalOptional(left.country, right.country)) score += 0.03;
   if (equalOptional(left.language, right.language)) score += 0.03;
   if (overlaps(left.categories, right.categories)) score += 0.02;
   if (equalOptional(left.logo, right.logo)) score += 0.02;
-  return Math.min(score, 0.99);
+  return Math.min(score, nameIsStrong ? 0.99 : 0.89);
 }
 
 export function findPossibleDuplicateChannels(
@@ -387,6 +417,13 @@ export function buildManualParsedStreams(
     });
 }
 
+/**
+ * The source channel id each fetched stream was requested for. Live channels
+ * can link several streams from one addon; this lets the caller keep them in
+ * the order the user arranged them.
+ */
+export const streamSourceChannelIds = new WeakMap<object, string>();
+
 export function orderLiveStreamsByMapping(
   fetched: ParsedStream[],
   manual: ParsedStream[],
@@ -394,18 +431,34 @@ export function orderLiveStreamsByMapping(
 ): ParsedStream[] {
   if (!sources?.length) return [...manual, ...fetched];
   const fetchedByAddon = new Map<string, ParsedStream[]>();
+  const fetchedBySource = new Map<string, ParsedStream[]>();
   for (const stream of fetched) {
     const addonId = stream.addon.instanceId ?? stream.addon.preset.id;
     const list = fetchedByAddon.get(addonId) ?? [];
     list.push(stream);
     fetchedByAddon.set(addonId, list);
+    const sourceChannelId = streamSourceChannelIds.get(stream);
+    if (sourceChannelId) {
+      const key = `${addonId}\0${sourceChannelId}`;
+      const bySource = fetchedBySource.get(key) ?? [];
+      bySource.push(stream);
+      fetchedBySource.set(key, bySource);
+    }
   }
+  const ordered: ParsedStream[] = [];
+  const placed = new Set<ParsedStream>();
+  const place = (streams: ParsedStream[] | undefined) => {
+    for (const stream of streams ?? []) {
+      if (placed.has(stream)) continue;
+      placed.add(stream);
+      ordered.push(stream);
+    }
+  };
   const manualByUrl = new Map(
     manual
       .filter((stream) => stream.url)
       .map((stream) => [stream.url!, stream] as const)
   );
-  const ordered: ParsedStream[] = [];
   for (const source of sources) {
     if (isManualStreamSource(source) && source.url) {
       const stream = manualByUrl.get(source.url);
@@ -413,7 +466,10 @@ export function orderLiveStreamsByMapping(
       continue;
     }
     if (!source.addonId) continue;
-    ordered.push(...(fetchedByAddon.get(source.addonId) ?? []));
+    const exact = source.channelId
+      ? fetchedBySource.get(`${source.addonId}\0${source.channelId}`)
+      : undefined;
+    place(exact ?? fetchedByAddon.get(source.addonId));
   }
   return ordered.length ? ordered : [...manual, ...fetched];
 }
